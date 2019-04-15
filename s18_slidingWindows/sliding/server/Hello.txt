@@ -1,0 +1,7 @@
+Hello world!
+
+GET CLIENT
+if(packet numbers dont match or packet is corrupted)
+self.sendPacket("ACK", "GET", time.time() , "FAIL", windowSize , windowCount, self.packetNum, payload, fileName)
+if all of window is recieved 
+self.sendPacket("ACK", "GET", time.time() , "SUCCESS", self.windowSize , windowCount, self.packetNum, payload, fileName)
