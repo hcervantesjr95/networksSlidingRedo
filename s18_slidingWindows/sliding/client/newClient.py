@@ -103,7 +103,7 @@ class slidingClient():
         header = self.buildHeader(packetType, action, status, packetNumber, TimeStamp, windowSize, payload, fileName, fileSize) 
         packet = self.buildPacket(header, payload)
         errorBuffer = {} 
-        print(packet)
+        #print(packet)
         self.socket.sendto(packet, self.serverAddr)
         return packet 
         
@@ -118,9 +118,11 @@ class slidingClient():
                 self.packetNumber = int(packetNumber)
                 self.fileSize = int(fileSize)
                 if(int(fileSize) % 100 != 0):
+                    print("file size" + str(self.fileSize))
                     self.packetsReceived = ([0] * ((int(fileSize) / 100) + 1))
+                    print("Expected Packets: " + str(len(self.packetsReceived)))
                 else:
-                    self.packetsReceived = ([0] * (int(fileSize) / 100))
+                    self.packetsReceived = ([0] * (int(fileSize) / 100) + 1)
                     a = input()
                 return 
     
@@ -135,19 +137,19 @@ class slidingClient():
         self.startHandshake(fileName, "GET")
         windowCounter = 0
         lastACKNum = 0
-        errorQ = ErrorQueue()
         while(not self.allPacketsArrived()):
             status, packet = self.recievePacket()
+            if(status == "DONE"):
+                break
             header, payload = self.splitPacket(packet)
             packetType, action, status, packetNumber, TimeStamp, windowSize, payloadSize, fileName, fileSize = self.splitHeader(header)
             if(packetType == "MSSG"):
                 # add expecting packet to the error queue
                 if(self.packetNumber != packetNumber):
                         lastACKNum = self.packetNumber
-                        errorQ.enqueue((self.sendPacket("NAK", "GET", "FAILED", self.packetNumber, 0.0, self.windowSize, 0, fileName, self.fileSize, "MISSING PACKET")), lastACKNum)
+                        self.sendPacket("NAK", "GET", "FAILED", self.packetNumber, 0.0, self.windowSize, 0, fileName, self.fileSize, "MISSING PACKET")
                 #if errorQ is empty, send ACK 
-                if(errorQ.empty()): 
-                    self.sendPacket("ACK", "GET", "SUCCESS", self.packetNumber, time.time(), self.windowSize, 100, fileName, self.fileSize, "GOOD")
+                self.sendPacket("ACK", "GET", "SUCCESS", self.packetNumber, time.time(), self.windowSize, 100, fileName, self.fileSize, "GOOD")
                 self.packetsReceived[int(packetNumber)] = payload
                 self.packetNumber += 1
         print("writing to file")

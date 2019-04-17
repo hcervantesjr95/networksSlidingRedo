@@ -197,6 +197,8 @@ class slidingServer():
         while(1):
             for x in range(self.windowSize):
                 payload = file.read(100)
+                if(payload == ""):
+                    self.sendPacket("CLOSE", "GET", "SUCCESS", self.packetNumber, time.time(), self.windowSize, payloadSize, fileName, fileSize, "")
                 payloadSize = self.getByteSize(payload)
                 sentPackets.append(self.sendPacket("MSSG", "GET", "SUCCESS", self.packetNumber, time.time(), self.windowSize, payloadSize, fileName, fileSize, payload))
                 self.packetNumber += 1
@@ -232,7 +234,7 @@ class slidingServer():
         
 
 
-serverAddr = ("", 50000)
+serverAddr = ("", 50001)
 
 
 serverSocket = socket(AF_INET, SOCK_DGRAM)
