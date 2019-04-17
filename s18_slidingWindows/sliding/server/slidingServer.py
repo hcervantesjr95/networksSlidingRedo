@@ -1,19 +1,19 @@
 #! /bin/python
 from socket import *
-import sys, time 
+import sys, time, os
 
 class slidingServer():
 
     def __init__(self, socket):
         self.socket = socket
-        self.clientAddr= ("localhost", 50001)
+        self.clientAddr= ("localhost", 50000)
         self.packetNum = 0
         self.fileName = ""
         self.fileNum = 0
         self.windowSize = 1
         self.packetChecker = []
     
-    def buildHeader(self, packetType, action, timeStamp, status, windowSize,windowCounter, packetCounter, payload, fileName):
+    def buildHeader(self, packetType, action, timeStamp, status, windowSize,windowCounter, packetCounter, payload, fileName, fileSize):
         return (packetType + "*" + 
         action + "*" + 
         str(timeStamp) + "*" + 
@@ -22,11 +22,22 @@ class slidingServer():
         str(windowCounter) + "*" + 
         str(packetCounter) + "*" + 
         str(self.getPayloadSize(str(payload))) + "*" + 
-        fileName + "***")
+        fileName + "*" +
+        str(fileSize) +
+        "***")
     
     def buildPacket(self, header, payload):
         return header + payload  
     
+    def getPacketTotal(self):
+        fileSize = os.path.getsize("./" + self.fileName)
+        if fileSize % 100 == 0:
+            return fileSize / 100 
+        return (fileSize / 100) + 1
+    
+    def getFileSize(self):
+        return os.path.getsize("./" + self.fileName)
+
     def getHeaderSize(self, header):
         return len(header.encode('utf-8'))
 
@@ -39,12 +50,12 @@ class slidingServer():
     
     def splitHeader(self, header):
         header = header.split("*")
-        return header[0], header[1], header[2], header[3], header[4], header[5], header[6], header[7], header[8]
+        return header[0], header[1], header[2], header[3], header[4], header[5], header[6], header[7], header[8], head[9]
 #[packetType*action*timestamp*status*windowSize*windowCounter*packetCounter*payloadSize*fileName***payload]    
     ################################### COMMUNICATION LOGIC ################################## 
 
-    def sendPacket(self, packetType, action, timeStamp, status, windowSize, windowCounter, packetCounter, payload, fileName):
-        header = self.buildHeader(packetType, action, timeStamp, status, windowSize, windowCounter, packetCounter, payload, fileName)
+    def sendPacket(self, packetType, action, timeStamp, status, windowSize, windowCounter, packetCounter, payload, fileName, fileSize):
+        header = self.buildHeader(packetType, action, timeStamp, status, windowSize, windowCounter, packetCounter, payload, fileName, fileSize)
         packet = self.buildPacket(header, payload)
         #print("sending packet with payload" + packet)
         self.socket.sendto(packet, self.clientAddr)
@@ -57,20 +68,18 @@ class slidingServer():
             return True
         else:
             return false
-
+    
     def receivePacket(self):
         try:
             while(1):
-                print("waiting for packet")
-                #self.socket.settimeout(0)
+                #self.socket.settimeout(8.0)
                 packet, self.clientAddr = self.socket.recvfrom(2048)
-                if(packet == ""):
-                    print("TIMED OUT")
-                    break
+                print("packet: " + packet)
+                #self.tries = 0
                 header, payload = self.splitPacket(packet)
-                packetType, action, timeStamp, status, windowSize, windowCounter, packetCounter, payloadBytes, fileName = self.splitHeader(header)
+                packetType, action, timeStamp, status, windowSize, windowCounter, packetCounter, payloadBytes, fileName, fileSize = self.splitHeader(header)
                 if(self.checkTimeStamp(timeStamp)):
-                    if(packet not in self.packetChecker or packetType == "ERROR"):
+                    if(packet not in self.packetChecker or packetType == "ERROR"): 
                         self.packetChecker.append(packet)
                         if(packetType == "START"):
                             return (action, fileName)
@@ -85,15 +94,22 @@ class slidingServer():
                             return("DONE", payload)
                         else:
                             print("ERROR INVALID PACKET FORMAT")
-                            header = self.buildHeader("ERROR", "ERROR", "0.0", "FAILED", 0, 0, 0, 0, "FAILED")
+                            header = self.buildHeader("ERROR", "ERROR", "0.0", "FAILED", 0, 0, 0, 0, "FAILED", self.fileName, 0)
                             packet = buildPacket(header, "INVALID PACKET")
                             self.socket.sendto("PACKET NOT KNOWN. TERMINATING", self.clientAddr)
                             return("DONE", payload)
+        except timeout:
+            if(self.tries == 8):
+                print("Lost Connection")
+                sys.exit()            
+            self.sendto(self.lastPacket, self.clientAddr)
+            self.tries += 1
+            return self.receivePacket()
         except  Exception as e:
             print(str(e))
-            header = self.buildHeader("ERROR", "ERROR", "0:0:0:0", "FAILED", 0, 0, 0, 0, "FAILED")
+            header = self.buildHeader("ERROR", "ERROR", "0.0", "FAILED", 0, 0, 0, 0, self.fileName, 0)
             packet = self.buildPacket(header, "INVALID PACKET")
-            #self.socket.sendto("PACKET NOT KNOWN. TERMINATING", self.clientAddr)
+            self.socket.sendto("PACKET NOT KNOWN. TERMINATING", self.clientAddr)
             return("DONE", packet)
 
 
@@ -145,7 +161,7 @@ class slidingServer():
                 for x in range(0, self.windowSize):
                     payload = file.read(100)
                     if(payload == ""):
-                        self.sendPacket("CLOSE","GET", time.time(), "SUCCESS", 0, 0, 0, "DONE", self.fileName)
+                        self.sendPacket("CLOSE","GET", time.time(), "SUCCESS", 0, 0, 0, "DONE", self.fileName, 0) # fuck ups filesize
                         self.packetNum = 0
                         file.seek(0)
                         file.close()
@@ -153,7 +169,7 @@ class slidingServer():
                         break
                     self.packetNum += 1
                     windowCounter += 1
-                    window[str(self.packetNum)] = self.sendPacket("MSSG", "GET", time.time(), "SUCCESS", self.windowSize, x, self.packetNum, payload, self.fileName)
+                    window[str(self.packetNum)] = self.sendPacket("MSSG", "GET", time.time(), "SUCCESS", self.windowSize, x, self.packetNum, payload, self.fileName, 0)# fuck ups file size
                 if(not Done):
                     while(1):
                         status, packet = self.receivePacket()
@@ -175,8 +191,8 @@ class slidingServer():
     def listen(self):
         while(1):
             print("Listening on the server")
-            action, fileName = self.receivePacket()
-            self.fileName = fileName
+            action, self.fileName = self.receivePacket()
+            self.sendPacket("ACK", "GET", time.time() , "SUCCESS", 0 , 0, 0, "NONE", self.fileName, self.getFileSize())
             if(action == "GET"):
                 print("GET " + fileName)
                 self.GET()
@@ -186,7 +202,7 @@ class slidingServer():
 
 
                 
-serverAddr = ("", 50001)
+serverAddr = ("", 50000)
 '''
 def usage():
     print "usage: %s [--serverPort <port>]"  % sys.argv[0]

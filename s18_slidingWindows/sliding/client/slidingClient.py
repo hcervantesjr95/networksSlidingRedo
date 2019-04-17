@@ -18,10 +18,12 @@ class slidingClient():
         self.fileNum = 0
         self.windowSize = 1
         self.packetChecker = [] 
+        self.packetTracker = []
         self.lastPacket = ""
+        self.tries = 0
     
     ################################### PACKET LOGIC ##################################
-    def buildHeader(self, packetType, action, timeStamp, status, windowSize,windowCounter, packetCounter, payload, fileName):
+    def buildHeader(self, packetType, action, timeStamp, status, windowSize,windowCounter, packetCounter, payload, fileName, fileSize):
         return (packetType + "*" + 
         action + "*" + 
         str(timeStamp) + "*" + 
@@ -30,10 +32,19 @@ class slidingClient():
         str(windowCounter) + "*" + 
         str(packetCounter) + "*" + 
         str(self.getPayloadSize(str(payload))) + "*" + 
-        fileName + "***")
+        fileName + "*" +
+        str(fileSize) +
+        "***")
     
     def buildPacket(self, header, payload):
         return header + payload  
+    
+    def getPacketTotal(self):
+        fileSize = os.path.getsize("./" + self.fileName)
+        if fileSize % 100 == 0:
+            return fileSize / 100 
+        return (fileSize / 100 ) + 1
+        
     
     def getHeaderSize(self, header):
         return len(header.encode('utf-8'))
@@ -47,15 +58,16 @@ class slidingClient():
     
     def splitHeader(self, header):
         header = header.split("*")
-        return header[0], header[1], header[2], header[3], header[4], header[5], header[6], header[7], header[8]
+        return header[0], header[1], header[2], header[3], header[4], header[5], header[6], header[7], header[8], head[9]
 #[packetType*action*timestamp*status*windowSize*windowCounter*packetCounter*payloadSize*fileName***payload]    
     ################################### COMMUNICATION LOGIC ################################## 
 
-    def sendPacket(self, packetType, action, timeStamp, status, windowSize,windowCounter, packetCounter, payload, fileName):
-        header = self.buildHeader(packetType, action, timeStamp, status, windowSize,windowCounter, packetCounter, payload, fileName)
+    def sendPacket(self, packetType, action, timeStamp, status, windowSize,windowCounter, packetCounter, payload, fileName, fileSize):
+        header = self.buildHeader(packetType, action, timeStamp, status, windowSize,windowCounter, packetCounter, payload, fileName, fileSize)
         packet = self.buildPacket(header, payload)
         print("sending packet with payload" + packet)
-        self.socket.sendto(packet, self.serverAddr)
+        self.lastPacket = packet
+        self.socket.sendto("START*GET*1000*SUCCESS*1*1*0*400*Hello.txt*500***hello", self.serverAddr)
 
     def checkTimeStamp(self, timeStamp):
         timer = time.time()
@@ -70,11 +82,10 @@ class slidingClient():
             while(1):
                 self.socket.settimeout(8.0)
                 packet, self.serverAddr = self.socket.recvfrom(2048)
-                if(packet == ""):
-                    print("TIMED OUT")
-                    break
+                print("packet: " + packet)
+                self.tries = 0
                 header, payload = self.splitPacket(packet)
-                packetType, action, timeStamp, status, windowSize, windowCounter, packetCounter, payloadBytes, fileName = self.splitHeader(header)
+                packetType, action, timeStamp, status, windowSize, windowCounter, packetCounter, payloadBytes, fileName, fileSize = self.splitHeader(header)
                 if(self.checkTimeStamp(timeStamp)):
                     if(packet not in self.packetChecker or packetType == "ERROR"): 
                         self.packetChecker.append(packet)
@@ -91,15 +102,20 @@ class slidingClient():
                             return("DONE", payload)
                         else:
                             print("ERROR INVALID PACKET FORMAT")
-                            header = self.buildHeader("ERROR", "ERROR", "0.0", "FAILED", 0, 0, 0, 0, "FAILED")
+                            header = self.buildHeader("ERROR", "ERROR", "0.0", "FAILED", 0, 0, 0, 0, "ERROR", 0)
                             packet = buildPacket(header, "INVALID PACKET")
                             self.socket.sendto("PACKET NOT KNOWN. TERMINATING", self.serverAddr)
                             return("DONE", payload)
-        except TimeoutError:
-             
+        except timeout:
+            if(self.tries == 8):
+                print("Lost Connection")
+                sys.exit()            
+            self.sendto(self.lastPacket, self.serverAddr)
+            self.tries += 1
+            return self.receivePacket()
         except  Exception as e:
             print(str(e))
-            header = self.buildHeader("ERROR", "ERROR", "0:0:0:0", "FAILED", 0, 0, 0, 0, "FAILED")
+            header = self.buildHeader("ERROR", "ERROR", "0.0", "FAILED", 0, 0, 0, 0, "ERROR", 0)
             packet = self.buildPacket(header, "INVALID PACKET")
             self.socket.sendto("PACKET NOT KNOWN. TERMINATING", self.serverAddr)
             return("DONE", packet)
@@ -107,16 +123,29 @@ class slidingClient():
 #[packetType*action*timestamp*status*windowSize*windowCounter*packetCounter*payloadSize*fileName***payload]
 ################################### FILE PROCESSING LOGIC ##################################
     def GET(self, fileName):
-        print("getting file")
+        print("Getting file")
         file = open(fileName, "w+")
-        self.sendPacket("START", "GET", time.time() , "NONE", 0 , 0, 0, "NONE", fileName)
-        windowCount = 1
-        self.packetNum = 1
+        self.sendPacket("START", "GET", time.time() , "NONE", 0 , 0, 0, "NONE", "fileName", 0)
+        #establish connection 
+        '''
+        while(1):
+            status, packet = self.receivePacket()
+            header, payload = self.splitPacket(packet)
+            packetType, action, timeStamp, status, windowSize, windowCounter, packetCounter, payloadBytes, fileName, fileSize = self.splitHeader(header)
+            if(status == "SUCCESS"):
+                print("GOT HANDSHAKE")
+                header, packet = self.splitPacket(packet)
+                
+                self.windowSize = windowSize
+                buffer 
+                break
+        # start receiving files
+        ''' 
         while(1):
             header, payload  = self.receivePacket()
             if(header == "DONE"):
                 break
-            packetType, action, timeStamp, status, windowSize, windowCounter, packetCounter, payloadBytes, fileName = self.splitHeader(header)
+            packetType, action, timeStamp, status, windowSize, windowCounter, packetCounter, payloadBytes, fileName, fileSize = self.splitHeader(header)
             if(int(payloadBytes) == self.getPayloadSize(payload)):
                 if(self.packetNum == int(packetCounter)):
                     file.write(payload)
@@ -141,7 +170,7 @@ class slidingClient():
                 if(self.windowSize > 1):
                     self.windowSize -= 1
         file.close()
-
+        
 
 
         
